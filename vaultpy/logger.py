@@ -17,7 +17,6 @@ error_handler = logging.FileHandler(os.path.join(log_dir, "error.log"))
 error_handler.setLevel(logging.ERROR)
 error_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
 
-
 # Determine environment
 env = os.environ.get("VAULT_ENV", "development").lower()
 
