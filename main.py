@@ -1,8 +1,10 @@
 import json
-import logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
+from dotenv import load_dotenv
+
+from logger import logger
+
+load_dotenv()
 
 
 def load_vault(file_path: str):
@@ -13,7 +15,7 @@ def load_vault(file_path: str):
             logger.debug(f"Vault contents: {vault}")
             return vault
     except FileNotFoundError:
-        logger.warning(f"{file_path} not found. Starting with an empty vault.")
+        logger.warning(f"{file_path} not fou`nd. Starting with an empty vault.")
         return {}
     except Exception as e:
         logger.error(f"Error loading vault: {e}")
