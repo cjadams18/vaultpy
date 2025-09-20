@@ -1,6 +1,10 @@
 import logging
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 log_dir = "/Users/chris/NoCloudZone/vault-py/logs"
 os.makedirs(log_dir, exist_ok=True)
 
