@@ -15,6 +15,7 @@
 2) master password will be hashed and salted, stored in local db
 3) master password will also be used in combination with another salt (saved to vault file), to decrypt the data in file
 4) how should I do a user login? I think I want to start with a TUI if possible, then move from there
+5) Need a timeout that closes app after so many minutes for security
 
 ## Even later...
 
