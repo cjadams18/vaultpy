@@ -217,3 +217,5 @@ __marimo__/
 
 vault.json
 logs/
+*.vault
+*.db
