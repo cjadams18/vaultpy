@@ -1,48 +1,67 @@
-from dotenv import load_dotenv
+from textual import on
 from textual.app import App
-from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Button, Footer, Header, Input, Label, ListView
+from textual.containers import Horizontal
+from textual.screen import Screen
+from textual.widgets import Button, Footer, Header, Input, Label
 
-import vaultpy.db as db
+from vaultpy.db import authenticate_user
 from vaultpy.logger import logger
 
-load_dotenv()
-db.setup_database()
 
-
-class VaultList(ListView):
+class Login(Screen):
     def compose(self):
-        yield Label("Passwords")
-
-
-class Login(VerticalScroll):
-    def compose(self):
+        yield Header()
         yield Label("Sign In")
-        yield Input("Username")
-        yield Input("Password")
+        yield Input(placeholder="Username", id="username_input")
+        yield Input(placeholder="Password", password=True, id="password_input")
         yield Horizontal(
             Button("Login", id="login", variant="success"),
             Button("Register", id="register", variant="primary"),
         )
+        yield Label("", id="login_status_label")
+        yield Footer()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "login":
-            logger.info("attempting login...")
-            vault_name = db.authenticate_user("cjadams18", "helloworld")
-            logger.info(vault_name)
+    @on(Button.Pressed, "#login")
+    def handle_login(self):
+        username_input = self.query_one("#username_input", Input)
+        password_input = self.query_one("#password_input", Input)
+        status_label = self.query_one("#login_status_label", Label)
 
-            result = self.query("Login")
-            if result:
-                self.remove(result)
+        vault_path = authenticate_user(username_input.value, password_input.value)
+        if not vault_path:
+            logger.warning("Unable to authenticate user")
+            status_label.update("[b red]Invalid username or password.[/]")
+        else:
+            status_label.update("[b]Login Successful![/]")
+            self.app.pop_screen()
+            self.app.push_screen("vault")
+
+    @on(Button.Pressed, "#register")
+    def handle_register(self):
+        logger.info("register pressed")
+
+
+class Vault(Screen):
+    BINDINGS = [("l", "app.pop_screen", "Logout")]
+
+    def compose(self):
+        yield Label("Passwords")
 
 
 class VaultPy(App):
-    BINDINGS = [("d", "toggle_dark", "Toggle dark mode"), ("q", "quit", "Quit the app")]
+    CSS_PATH = "main.tcss"
+    SCREENS = {"login": Login, "vault": Vault}
+    BINDINGS = [
+        ("d", "toggle_dark", "Toggle dark mode"),
+        ("q", "quit", "Quit the app"),
+    ]
 
     def compose(self):
         yield Header()
-        yield Login()
         yield Footer()
+
+    def on_mount(self):
+        self.push_screen("login")
 
     def action_toggle_dark(self):
         self.theme = (

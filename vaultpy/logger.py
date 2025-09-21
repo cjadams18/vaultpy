@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-log_dir = "/Users/chris/NoCloudZone/vault-py/logs"
+log_dir = os.environ.get("LOG_PATH", "./logs")
 os.makedirs(log_dir, exist_ok=True)
 
 logger = logging.getLogger(__name__)
