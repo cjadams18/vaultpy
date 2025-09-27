@@ -3,6 +3,7 @@ import sqlite3
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from vaultpy.logger import logger
@@ -61,6 +62,21 @@ def hash_master_password(password: str, salt: bytes) -> bytes:
     return kdf.derive(password.encode())
 
 
+def is_existing_user(username: str) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT * FROM user WHERE username = ?
+        """,
+        (username,),
+    )
+
+    row = cursor.fetchone()
+    return row is not None
+
+
 def create_user(username: str, master_password: str) -> bool:
     """
     Registers a new user and creates their encrypted vault file.
@@ -71,33 +87,37 @@ def create_user(username: str, master_password: str) -> bool:
     cursor = conn.cursor()
 
     try:
-        salt = os.urandom(16)
-        hashed_password = hash_master_password(master_password, salt)
+        if is_existing_user(username):
+            logger.error(f"Username '{username}' already exists")
+            return False
 
-        vault_file_path = f"{username}.vault"
+        current_directory = os.getcwd()
+        filename = f"{username}.vault"
+        vault_file_path = os.path.join(current_directory, filename)
         initial_vault = b'{"vault_data":[]}'
 
+        # Generate unique salt for hashing encryption key
+        salt = os.urandom(16)
         encryption_key = hash_master_password(master_password, salt)
 
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
+        aesgcm = AESGCM(encryption_key)
         iv = os.urandom(12)
-        cipher = Cipher(
-            algorithms.AES(encryption_key), modes.GCM(iv), backend=default_backend()
-        )
-        encryptor = cipher.encryptor()
-        encrypted_vault = encryptor.update(initial_vault) + encryptor.finalize()
-        tag = encryptor.tag
 
-        file_content = salt + iv + tag + encrypted_vault
+        encrypted_vault = aesgcm.encrypt(iv, initial_vault, None)
+        file_content = salt + iv + encrypted_vault
+
         with open(vault_file_path, "wb") as f:
             f.write(file_content)
+
+        # Generate new salt for hashing master password
+        salt = os.urandom(16)
+        hashed_password = hash_master_password(master_password, salt)
 
         cursor.execute(
             """
             INSERT INTO user (username, hash, salt, file_path)
             VALUES (?, ?, ?, ?);
-        """,
+            """,
             (username, hashed_password.hex(), salt.hex(), vault_file_path),
         )
 
@@ -112,7 +132,7 @@ def create_user(username: str, master_password: str) -> bool:
         conn.close()
 
 
-def authenticate_user(username: str, master_password: str) -> str:
+def authenticate_user(username: str, master_password: str) -> str | None:
     """
     Authenticates a user and returns the path to their vault file on success.
 
@@ -128,7 +148,8 @@ def authenticate_user(username: str, master_password: str) -> str:
 
         user_record = cursor.fetchone()
         if not user_record:
-            raise Exception("Authentication failed: User not found.")
+            logger.warning("Authentication failed: User not found.")
+            return None
 
         stored_hash = bytes.fromhex(user_record["hash"])
         stored_salt = bytes.fromhex(user_record["salt"])
@@ -137,7 +158,8 @@ def authenticate_user(username: str, master_password: str) -> str:
         # Hash the entered password with the stored salt
         entered_hash = hash_master_password(master_password, stored_salt)
         if entered_hash != stored_hash:
-            raise Exception("Authentication failed: Incorrect password.")
+            logger.warning("Authentication failed: Incorrect password.")
+            return None
 
         logger.info(f"Authentication successful for user '{username}'.")
         return file_path

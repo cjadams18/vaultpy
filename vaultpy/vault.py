@@ -23,8 +23,6 @@ class Vault:
                 file_content = file.read()
 
             self.salt = file_content[:16]
-            print(self.salt)
-
             self.encryption_key = hash_master_password(master_password, self.salt)
 
             iv = file_content[16:28]
@@ -38,17 +36,11 @@ class Vault:
             logger.warning(f"{self.file_path} not found. Starting with an empty vault.")
             self.data = {}
         except InvalidTag:
-            # TODO what should I do here?
-
-            logger.warning(
+            raise Exception(
                 "Decryption failed. Master password may be incorrect or vault file is corrupted"
             )
-            return None
         except Exception as e:
-            # TODO what should I do here?
-
-            logger.error(f"Error loading vault: {e}")
-            return None
+            raise Exception(f"Error loading vault: {e}")
 
     def save(self):
         try:

@@ -2,4 +2,4 @@ from vaultpy import db
 
 db.setup_database()
 
-db.create_user("cjadams18", "helloworld")
+db.create_user("chris", "hello")
