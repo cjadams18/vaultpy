@@ -1,11 +1,7 @@
 import os
 import sqlite3
 
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
+from vaultpy.encryption_helper import crypto
 from vaultpy.logger import logger
 
 
@@ -50,18 +46,6 @@ def get_db_connection():
     return conn
 
 
-def hash_master_password(password: str, salt: bytes) -> bytes:
-    """Hashes a master password using PBKDF2."""
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=100000,
-        backend=default_backend(),
-    )
-    return kdf.derive(password.encode())
-
-
 def is_existing_user(username: str) -> bool:
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -94,24 +78,18 @@ def create_user(username: str, master_password: str) -> bool:
         current_directory = os.getcwd()
         filename = f"{username}.vault"
         vault_file_path = os.path.join(current_directory, filename)
-        initial_vault = b'{"vault_data":[]}'
+        initial_vault = b'{"google.com":{"site":"google.com","username":"chris","password":"password"}}'  # TODO
 
-        # Generate unique salt for hashing encryption key
-        salt = os.urandom(16)
-        encryption_key = hash_master_password(master_password, salt)
-
-        aesgcm = AESGCM(encryption_key)
-        iv = os.urandom(12)
-
-        encrypted_vault = aesgcm.encrypt(iv, initial_vault, None)
-        file_content = salt + iv + encrypted_vault
+        file_content = crypto.encrypt(
+            plain_text=initial_vault,
+            master_password=master_password.encode(),
+            ad=username.encode(),
+        )
 
         with open(vault_file_path, "wb") as f:
             f.write(file_content)
 
-        # Generate new salt for hashing master password
-        salt = os.urandom(16)
-        hashed_password = hash_master_password(master_password, salt)
+        hashed_password, salt = crypto.derive_key(master_password.encode())
 
         cursor.execute(
             """
@@ -156,7 +134,7 @@ def authenticate_user(username: str, master_password: str) -> str | None:
         file_path = user_record["file_path"]
 
         # Hash the entered password with the stored salt
-        entered_hash = hash_master_password(master_password, stored_salt)
+        entered_hash, _ = crypto.derive_key(master_password.encode(), stored_salt)
         if entered_hash != stored_hash:
             logger.warning("Authentication failed: Incorrect password.")
             return None

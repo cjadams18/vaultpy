@@ -1,10 +1,20 @@
 from textual import on
 from textual.app import App
 from textual.containers import Horizontal
-from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView
+from textual.screen import ModalScreen, Screen
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Static,
+)
 
 from vaultpy.db import authenticate_user, create_user
+from vaultpy.logger import logger
 from vaultpy.vault import Vault
 
 
@@ -17,7 +27,10 @@ class RegisterScreen(Screen):
         yield Input(
             placeholder="Confirm Password", password=True, id="confirm_password_input"
         )
-        yield Button("Register", id="register", variant="primary")
+        yield Horizontal(
+            Button("Register", id="register", variant="success"),
+            Button("Cancel", id="cancel", variant="primary"),
+        )
         yield Label("", id="login_status_label")
         yield Footer()
 
@@ -40,9 +53,9 @@ class RegisterScreen(Screen):
             return
 
         # TODO need to return vault path on success for create user
-        vault = Vault(f"{username_input.value}.vault")
+        vault = Vault(f"{username_input.value}.vault", username_input.value.encode())
         try:
-            vault.load(password_input.value)
+            vault.load(password_input.value.encode())
         except Exception as e:
             status_label.update(f"[b red]{e}[/]")
             return
@@ -53,8 +66,11 @@ class RegisterScreen(Screen):
         confirm_password_input.clear()
         status_label.update("")
 
-        vault_screen = self.app.SCREENS["vault"](vault)
-        self.app.switch_screen(vault_screen)
+        self.app.switch_screen(VaultScreen(vault))
+
+    @on(Button.Pressed, "#cancel")
+    def handle_cancel(self):
+        self.app.switch_screen(LoginScreen())
 
 
 class LoginScreen(Screen):
@@ -81,9 +97,9 @@ class LoginScreen(Screen):
             status_label.update("[b red]Invalid username or password.[/]")
             return
 
-        vault = Vault(vault_path)
+        vault = Vault(vault_path, username_input.value.encode())
         try:
-            vault.load(password_input.value)
+            vault.load(password_input.value.encode())
         except Exception as e:
             status_label.update(f"[b red]{e}[/]")
             return
@@ -93,12 +109,45 @@ class LoginScreen(Screen):
         password_input.clear()
         status_label.update("")
 
-        vault_screen = self.app.SCREENS["vault"](vault)
-        self.app.switch_screen(vault_screen)
+        self.app.switch_screen(VaultScreen(vault))
 
     @on(Button.Pressed, "#register")
     def handle_register(self):
         self.app.switch_screen(RegisterScreen())
+
+
+class CreateNewEntryScreen(ModalScreen):
+    def __init__(self, vault: Vault, **kwargs):
+        super().__init__(**kwargs)
+        self.vault = vault
+
+    def compose(self):
+        yield Header()
+        yield Label("Create New Item")
+        yield Input(placeholder="Name", id="name")
+        yield Input(placeholder="URL", id="url")
+        yield Input(placeholder="Username", id="username")
+        yield Input(placeholder="Password", id="password")
+        yield Horizontal(
+            Button("Accept", id="accept", variant="success"),
+            Button("Cancel", id="cancel", variant="primary"),
+        )
+        yield Footer()
+
+    @on(Button.Pressed, "#accept")
+    def handle_accept(self):
+        name = self.query_one("#name", Input).value
+        url = self.query_one("#url", Input).value
+        username = self.query_one("#username", Input).value
+        password = self.query_one("#password", Input).value
+        self.vault.create(
+            url, {"name": name, "url": url, "username": username, "password": password}
+        )
+        self.app.pop_screen()
+
+    @on(Button.Pressed, "#cancel")
+    def handle_cancel(self):
+        self.app.pop_screen()
 
 
 class VaultScreen(Screen):
@@ -111,13 +160,26 @@ class VaultScreen(Screen):
     def compose(self):
         yield Header()
         yield Label("Passwords")
-        yield Label(self.vault.data.__str__())
-        yield ListView(
-            ListItem(Label("chris")),
-            ListItem(Label("james")),
-            ListItem(Label("adams")),
-        )
+        yield Button("New Item", id="new_item", variant="success")
+        yield ListView(id="vault_list")
         yield Footer()
+
+    def on_mount(self):
+        logger.info("HERE")
+        vault_list = self.query_one("#vault_list", ListView)
+        self.populate_vault(vault_list)
+
+    def populate_vault(self, vault_list: ListView):
+        logger.info(self.vault.data)
+        for key, value in self.vault.data.items():
+            logger.info(key)
+            logger.info(value)
+            item = ListItem(Static(key))
+            vault_list.append(item)
+
+    @on(Button.Pressed, "#new_item")
+    def handle_new(self):
+        self.app.push_screen(CreateNewEntryScreen(self.vault))
 
     def action_logout(self):
         self.app.switch_screen(LoginScreen())
@@ -125,14 +187,13 @@ class VaultScreen(Screen):
 
 class VaultPy(App):
     CSS_PATH = "main.tcss"
-    SCREENS = {"login": LoginScreen, "register": RegisterScreen, "vault": VaultScreen}
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("q", "quit", "Quit the app"),
     ]
 
     def on_mount(self):
-        self.push_screen("login")
+        self.push_screen(LoginScreen())
 
     def action_toggle_dark(self):
         self.theme = (
